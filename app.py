@@ -3745,7 +3745,7 @@ def generate_response(prompt, model, max_words=15, temperature=0.6):
 # --- Интерфейс ---
 st.set_page_config(page_title="A1-mini Transformer", page_icon="🤖")
 st.title("🤖 A1-mini Transformer")
-st.caption("30 000 диалогов, 30 эпох, Калькулятор, Механизм внимания")
+st.caption("10 000 диалогов, 5 эпох, Калькулятор, Механизм внимания")
 
 with st.spinner("Загружаю A1-mini..."):
     model = load_or_train_model()
