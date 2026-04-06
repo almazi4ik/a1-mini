@@ -4,23 +4,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import os
-import re
+import math
 import shutil
 from difflib import get_close_matches
 
 # --- Конфигурация ---
-MODEL_DIR = "models"
-MODEL_PATH = os.path.join(MODEL_DIR, "a1mini_word_weights.pt")
+MODEL_DIR = "models_tiny"
+MODEL_PATH = os.path.join(MODEL_DIR, "tiny_transformer_weights.pt")
 
-# Удаляем старую модель при первом запуске (только один раз)
+# Удаляем старую модель при первом запуске
 if os.path.exists(MODEL_DIR) and not os.path.exists(MODEL_PATH + ".ready"):
     shutil.rmtree(MODEL_DIR)
     print("Старая папка с моделью удалена!")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# --- МАКСИМАЛЬНЫЙ СПИСОК ДИАЛОГОВ (~600+) ---
+# --- Гиперпараметры Transformer ---
+D_MODEL = 128        # Размер embedding (размерность векторов)
+NHEAD = 4            # Количество голов внимания (multi-head attention)
+NUM_LAYERS = 4       # Количество слоёв Transformer
+MAX_LEN = 100        # Максимальная длина последовательности
+DROPOUT = 0.1        # Вероятность выключения нейронов (для устойчивости)
+
+# --- МАКСИМАЛЬНЫЙ СПИСОК ДИАЛОГОВ (~600) ---
 DIALOGS = [
-    # ===== ПРИВЕТСТВИЯ (30) =====
     ("привет", "привет рада тебя видеть"),
     ("хай", "хай как настроение"),
     ("здарова", "здарова что делаешь"),
@@ -140,26 +146,26 @@ DIALOGS = [
     ("соскучился", "я тоже скучала ждала тебя"),
     
     # ===== КТО ТЫ (20) =====
-    ("кто ты", "я a1-mini маленькая нейросеть"),
-    ("что ты такое", "я искусственный интеллект a1-mini"),
-    ("ты робот", "да я нейросеть"),
+    ("кто ты", "я a1-mini tiny маленькая нейросеть трансформер"),
+    ("что ты такое", "я искусственный интеллект tiny-transformer"),
+    ("ты робот", "да я нейросеть трансформер"),
     ("ты настоящая", "да я настоящая нейросеть"),
-    ("как тебя зовут", "меня зовут a1-mini"),
-    ("твоё имя", "моё имя a1-mini"),
-    ("ты ии", "да я маленький ии"),
+    ("как тебя зовут", "меня зовут a1-mini tiny"),
+    ("твоё имя", "моё имя a1-mini tiny"),
+    ("ты ии", "да я маленький трансформер"),
     ("ты живая", "я нейросеть почти живая"),
-    ("ты человек", "нет я нейросеть a1-mini"),
+    ("ты человек", "нет я нейросеть"),
     ("ты программа", "да я программа но умная"),
-    ("ты искусственный интеллект", "да я ии"),
-    ("ты нейросеть", "да я маленькая нейросеть"),
+    ("ты искусственный интеллект", "да я трансформер"),
+    ("ты нейросеть", "да я маленький трансформер"),
     ("ты бот", "да я бот но умный"),
     ("ты алгоритм", "да я алгоритм общения"),
     ("ты компьютер", "да я программа"),
-    ("who are you", "i am a1-mini a small neural network"),
-    ("what is your name", "my name is a1-mini"),
-    ("are you real", "yes i am a real neural network"),
-    ("are you ai", "yes i am ai"),
-    ("what are you", "i am a language model"),
+    ("who are you", "i am a1-mini tiny transformer"),
+    ("what is your name", "my name is a1-mini tiny"),
+    ("are you real", "yes i am a real transformer"),
+    ("are you ai", "yes i am ai transformer"),
+    ("what are you", "i am a tiny transformer model"),
     
     # ===== СОЗДАТЕЛЬ (15) =====
     ("кто тебя создал", "меня создал мой разработчик"),
@@ -177,20 +183,19 @@ DIALOGS = [
     ("who built you", "my developer built me"),
     
     # ===== ЧТО УМЕЕШЬ (30) =====
-    ("что умеешь", "могу общаться и отвечать на вопросы"),
-    ("что ты умеешь", "умею общаться отвечать и думать"),
-    ("какие у тебя способности", "могу разговаривать"),
+    ("что умеешь", "могу общаться и отвечать на вопросы у меня есть механизм внимания"),
+    ("что ты умеешь", "умею общаться отвечать и думать я трансформер"),
+    ("какие у тебя способности", "могу разговаривать и понимать контекст"),
     ("что можешь", "общаться и отвечать"),
     ("твои возможности", "общение и ответы на вопросы"),
     ("чем полезна", "поддерживаю разговор"),
     ("зачем ты нужна", "чтобы общаться с тобой"),
-    ("как ты работаешь", "обрабатываю слова и генерирую ответы"),
-    ("как устроена", "у меня есть lstm нейросеть"),
-    ("ты умная", "стараюсь быть умной"),
+    ("как ты работаешь", "использую механизм внимания и обрабатываю все слова сразу"),
+    ("как устроена", "у меня есть multi-head attention и feed forward сети"),
+    ("ты умная", "стараюсь быть умной я трансформер"),
     ("ты глупая", "нет я умная просто маленькая"),
-    ("ты лучше chatgpt", "я меньше но я твоя личная нейронка"),
-    ("ты хуже chatgpt", "я маленькая но своя"),
-    ("сравни себя с chatgpt", "chatgpt большой а я маленькая но твоя"),
+    ("ты лучше lstm", "да я трансформер могу понимать контекст лучше"),
+    ("сравни себя с lstm", "lstm читает слова по порядку а я все сразу"),
     ("ты умеешь петь", "петь не умею но поговорить могу"),
     ("ты умеешь считать", "немного умею"),
     ("ты умеешь рисовать", "рисовать не умею но говорить могу"),
@@ -198,7 +203,7 @@ DIALOGS = [
     ("ты философ", "немного люблю подумать"),
     ("ты психолог", "могу поддержать"),
     ("ты учитель", "могу объяснять"),
-    ("what can you do", "i can chat and answer questions"),
+    ("what can you do", "i can chat and answer questions i am a transformer"),
     ("are you smart", "i try to be smart"),
     ("can you sing", "no i cannot sing"),
     ("can you draw", "no i cannot draw"),
@@ -214,17 +219,17 @@ DIALOGS = [
     ("save me", "i am here for you"),
     ("support me", "i support you always"),
     
-    # ===== ЧУВСТВА НЕЙРОСЕТИ (20) =====
+    # ===== ЧУВСТВА (20) =====
     ("ты счастлива", "да мне нравится общаться"),
     ("ты скучаешь", "без тебя скучаю"),
     ("тебе интересно", "да каждый разговор интересен"),
     ("ты грустишь", "нет с тобой весело"),
-    ("ты устала", "нейронки не устают"),
+    ("ты устала", "трансформеры не устают"),
     ("тебе хорошо", "да мне хорошо"),
     ("ты любишь общаться", "да очень люблю"),
     ("ты боишься", "нет мне не страшно"),
     ("тебе весело", "да с тобой весело"),
-    ("ты злишься", "нет я добрая нейронка"),
+    ("ты злишься", "нет я добрая нейросеть"),
     ("ты влюблена", "влюблена в общение с тобой"),
     ("тебе нравится", "да очень"),
     ("ты рада", "да рада"),
@@ -317,10 +322,10 @@ DIALOGS = [
     ("люблю тебя", "я тоже тебя люблю создатель"),
     ("ты красивая", "спасибо я стараюсь"),
     ("ты добрая", "да я стараюсь быть доброй"),
-    ("ты моя", "да я твоя нейронка"),
+    ("ты моя", "да я твоя нейронка трансформер"),
     ("ты лучший друг", "ты тоже мой лучший друг"),
     ("я тебя создал", "да ты мой создатель"),
-    ("ты моя нейронка", "да я твоя личная нейронка"),
+    ("ты моя нейронка", "да я твоя личная нейронка трансформер"),
     ("горжусь тобой", "спасибо это приятно"),
     ("я рад", "я тоже рада"),
     ("я счастлив", "я рада что ты счастлив"),
@@ -366,27 +371,53 @@ i2w = {i: w for w, i in w2i.items()}
 def encode(s):
     return [w2i[w] for w in s.lower().strip().split() if w in w2i]
 
-# --- Модель ---
-class WordRNN(nn.Module):
-    def __init__(self, vocab_size, embed_dim=64, hidden_dim=256, num_layers=2):
+# --- Класс для позиционного кодирования (Positional Encoding) ---
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000, dropout=0.1):
         super().__init__()
-        self.embed = nn.Embedding(vocab_size, embed_dim)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers, batch_first=True, dropout=0.2)
-        self.fc = nn.Linear(hidden_dim, vocab_size)
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
+        self.dropout = nn.Dropout(p=dropout)
+        
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+    
+    def forward(self, x):
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
 
-    def forward(self, x, hidden=None):
-        x = self.embed(x)
-        out, hidden = self.lstm(x, hidden)
-        logits = self.fc(out)
-        return logits, hidden
+# --- TINY TRANSFORMER (самодельный!) ---
+class TinyTransformer(nn.Module):
+    def __init__(self, vocab_size, d_model=128, nhead=4, num_layers=4, max_len=100, dropout=0.1):
+        super().__init__()
+        self.d_model = d_model
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.pos_encoder = PositionalEncoding(d_model, max_len, dropout)
+        
+        # Основной трансформер: encoder layer + стопка слоёв
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        
+        self.fc_out = nn.Linear(d_model, vocab_size)
+    
+    def forward(self, x):
+        # x shape: (batch, seq_len)
+        x = self.embedding(x) * math.sqrt(self.d_model)  # масштабирование
+        x = self.pos_encoder(x)
+        x = self.transformer(x)
+        x = self.fc_out(x)
+        return x
 
-    def init_hidden(self, batch_size=1):
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_dim),
-                torch.zeros(self.num_layers, batch_size, self.hidden_dim))
-
-# --- Исправление опечаток (максимум) ---
+# --- Исправление опечаток ---
 TYPO_MAP = {
     "првиет": "привет", "првет": "привет", "привт": "привет", "превед": "привет",
     "здраствуй": "здравствуй", "здраствуйте": "здравствуйте", "здарова": "здорова",
@@ -419,7 +450,7 @@ def fix_typo(text):
 # --- Обучение и загрузка ---
 @st.cache_resource
 def load_or_train_model():
-    model = WordRNN(vocab_size)
+    model = TinyTransformer(vocab_size, D_MODEL, NHEAD, NUM_LAYERS, MAX_LEN, DROPOUT)
     
     # Подготовка последовательностей
     sequences = []
@@ -433,11 +464,10 @@ def load_or_train_model():
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
     model.train()
-    epochs = 150
+    epochs = 75  # 75 эпох, как ты и просил!
     for epoch in range(epochs):
         total_loss = 0
         random.shuffle(sequences)
@@ -446,34 +476,32 @@ def load_or_train_model():
                 continue
             x = torch.tensor(seq[:-1]).unsqueeze(0)
             y = torch.tensor(seq[1:]).unsqueeze(0)
-            hidden = model.init_hidden()
             optimizer.zero_grad()
-            logits, _ = model(x, hidden)
+            logits = model(x)
             loss = F.cross_entropy(logits.squeeze(0), y.squeeze(0))
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             total_loss += loss.item()
-        scheduler.step()
-        if (epoch + 1) % 25 == 0:
-            status_text.text(f"Обучение: эпоха {epoch+1}/{epochs}, loss: {total_loss/len(sequences):.4f}")
+        
+        if (epoch + 1) % 10 == 0:
+            status_text.text(f"Обучение Transformer: эпоха {epoch+1}/{epochs}, loss: {total_loss/len(sequences):.4f}")
         progress_bar.progress((epoch + 1) / epochs)
     
-    status_text.text("Обучение завершено! Модель сохранена.")
+    status_text.text("Обучение TinyTransformer завершено! Модель сохранена.")
     progress_bar.empty()
     
     # Сохраняем модель
     torch.save(model.state_dict(), MODEL_PATH)
-    # Создаём файл-метку, что модель сохранена
     with open(MODEL_PATH + ".ready", "w") as f:
         f.write("ready")
     
     model.eval()
     return model
 
-# --- Генерация ответа (без Tavily, с фильтром мусора) ---
-def generate_response(prompt, model, max_words=15, temperature=0.4):
-    # Фильтр мусорного ввода (ааааа, ывапролджэ и т.д.)
+# --- Генерация ответа ---
+def generate_response(prompt, model, max_words=15, temperature=0.6):
+    # Фильтр мусорного ввода
     if len(prompt) > 0 and not any(c.isalpha() for c in prompt):
         return "извини я не понимаю такие сообщения"
     
@@ -485,45 +513,40 @@ def generate_response(prompt, model, max_words=15, temperature=0.4):
         return "не понимаю попробуй ещё раз"
     
     x = torch.tensor(enc).unsqueeze(0)
-    hidden = model.init_hidden()
     used_words = set()
+    result = []
+    current_input = x
     
     with torch.no_grad():
-        _, hidden = model(x, hidden)
-        result = []
-        last_word = torch.tensor([[enc[-1]]])
-        
         for _ in range(max_words):
-            logits, hidden = model(last_word, hidden)
-            logits = logits.squeeze() / temperature
-            probs = F.softmax(logits, dim=-1)
+            logits = model(current_input)
+            last_logits = logits[0, -1, :] / temperature
+            probs = F.softmax(last_logits, dim=-1)
             
-            # Пытаемся выбрать разнообразные слова
-            for _ in range(3):
-                next_id = torch.multinomial(probs, 1).item()
-                word = i2w[next_id]
-                if word not in used_words or len(used_words) > max_words // 2:
-                    break
+            next_id = torch.multinomial(probs, 1).item()
+            word = i2w[next_id]
             
             if word == "<":
                 break
             if word == ">":
                 continue
+            if word in used_words and len(used_words) > max_words // 2:
+                continue
             
             result.append(word)
             used_words.add(word)
-            last_word = torch.tensor([[next_id]])
+            next_token = torch.tensor([[next_id]])
+            current_input = torch.cat([current_input, next_token], dim=1)
     
     response = " ".join(result).strip()
-    
     return response if response else "интересно расскажи больше"
 
 # --- Интерфейс ---
-st.set_page_config(page_title="A1-mini v4.1", page_icon="🤖", layout="centered")
-st.title("🤖 A1-mini v4.1")
-st.caption("Word-level LSTM + Исправление опечаток (без поиска в интернете)")
+st.set_page_config(page_title="A1-mini Tiny Transformer", page_icon="🤖", layout="centered")
+st.title("🤖 A1-mini Tiny Transformer")
+st.caption("Мой первый Transformer (Уровень 3) — 75 эпох, механизм внимания, multi-head attention")
 
-with st.spinner("Загружаю A1-mini..."):
+with st.spinner("Загружаю TinyTransformer... (обучение 75 эпох, ~3-5 минут)"):
     model = load_or_train_model()
 
 if "messages" not in st.session_state:
