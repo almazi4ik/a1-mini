@@ -1981,7 +1981,7 @@ def load_or_train_model():
     
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     model.train()
-    epochs = 30  # 30 эпох вместо 5!
+    epochs = 20  # 20 эпох вместо 5!
     
     for epoch in range(epochs):
         total_loss = 0
